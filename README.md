@@ -1,46 +1,56 @@
 # nest-notifier
 
-A module for Nest.js application that provides a set of providers for sending SMS, calls, email, push notifications.
-The following providers are currently available:
+Модуль уведомлений для библиотеки [Steroids Nest](https://github.com/steroids/nest)
 
-- [FirebasePushProvider](https://firebase.google.com/products/cloud-messaging?hl=en)
-- [MailProvider](https://nest-modules.github.io/mailer/)
-- [SmscCallProvider](https://smsc.ru/api/http/send/voice/#menu)
-- [SmscSmsProvider](https://smsc.ru/api/http/send/sms/#menu)
-- [SmscVoiceMessageProvider](https://smsc.ru/api/http/send/voice/#menu)
-- [SmsRuCallProvider](https://sms.ru/api/code_call)
-- [SmsRuSmsProvider](https://sms.ru/api/send)
+# Предназначение
 
-## Getting started
-Install package:
+Модуль позволяет быстро внедрить в проект функциональность, связанную с отправкой и логированием уведомлений:
+- уведомления по электронной почте
+- сообщения по SMS
+- звонки с уведомлением
+- отправка push-уведомлений
+- отправка голосового сообщения
+
+# Быстрый старт
+
+Для того чтобы подключить NotifierModule в существующий проект на Steroids Nest
+нужно следовать шагам, описанным ниже.
+
+1. Установите пакет:
 ```sh
 yarn add @steroidsjs/nest-notifier
 ```
 
+2. Определить NotifierModule с конфигурацией из `@steroidsjs/nest-notifier`. 
+Также можно выбирать только нужные провайдеры уведомлений для `NotifierService`:
 
-Create Steroids.js Nest module, based on installed module. Add the necessary providers from the module to the providers array. Connect the NotifierService service and pass the connected providers to it.
-```ts
+```typescript
 import {Module} from '@steroidsjs/nest/infrastructure/decorators/Module';
-import coreModule from '@steroidsjs/nest-notifier';
-import {INotifierService} from '@steroidsjs/nest-modules/notifier/services/INotifierService';
+import {INotifierModuleConfig} from '@steroidsjs/nest-notifier/infrastructure/config';
 import {ModuleHelper} from '@steroidsjs/nest/infrastructure/helpers/ModuleHelper';
+import {INotifierService} from '@steroidsjs/nest-modules/notifier/services/INotifierService';
 import {NotifierService} from '@steroidsjs/nest-notifier/domain/services/NotifierService';
 import {SmscSmsProvider} from '@steroidsjs/nest-notifier/domain/providers/SmscSmsProvider';
 import {FirebasePushProvider} from '@steroidsjs/nest-notifier/domain/providers/FirebasePushProvider';
-import {INotifierProviderService} from '@steroidsjs/nest-notifier/domain/interfaces/INotifierProviderService';
-import {NotifierSendRequestService} from '@steroidsjs/nest-notifier/domain/services/NotifierSendRequestService';
+import coreModule from '@steroidsjs/nest-notifier';
+import notifierConfig from '@steroidsjs/nest-notifier/infrastructure/config';
 
 @Module({
     ...coreModule,
-    module: (config) => {
-        const module = coreModule.module(config) as any;
+    tables: [...(coreModule.tables ?? [])],
+    config: notifierConfig,
+    module: (config: INotifierModuleConfig) => {
+        const module = coreModule.module(config);
         return {
             ...module,
-            imports: [],
+            imports: [
+                ...(module.imports ?? []),
+            ],
+            controllers: [
+                ...(module.controllers ?? []),
+            ],
             providers: [
-                ...module.providers,
-                SmscSmsProvider,
-                FirebasePushProvider,
+                ...(module.providers ?? []),
                 ModuleHelper.provide(NotifierService, INotifierService, [
                     INotifierProviderService,
                     NotifierSendRequestService,
@@ -51,33 +61,110 @@ import {NotifierSendRequestService} from '@steroidsjs/nest-notifier/domain/servi
                 ]),
             ],
             exports: [
-                INotifierService,
+                ...(module.exports ?? []),
             ],
         };
     },
 })
 export class NotifierModule {}
 ```
-Set the environment variables required for the providers you have connected. You can look at the [configuration file](https://github.com/steroids/nest-notifier/blob/main/src/infrastructure/config.ts) to determine the required variables. You can also define your own configuration file that implements the INotifierModuleConfig interface and add this file to the module.
 
-> Note: For FirebasePushProvider to work, you need to [get the Firebase server key](https://firebase.google.com/docs/cloud-messaging/auth-server?hl=ru) and specify the path to it in your OS environment variable GOOGLE_APPLICATION_CREDENTIALS.
+3. Импортировать созданный модуль в главный модуль:
+```typescript
+import coreModule from '@steroidsjs/nest/infrastructure/applications/rest/config';
+import {Module} from '@steroidsjs/nest/infrastructure/decorators/Module';
+import {NotifierModule} from '../../notifier/infrastructure/NotifierModule';
 
-> Note: For MailProvider to work, you must also [connect MailerModule](https://nest-modules.github.io/mailer/docs/mailer#configuration) from @nestjs-modules/mailer to your module
+@Module({
+    ...coreModule,
+    module: (config) => {
+        const module = coreModule.module(config);
+        return {
+            ...module,
+            imports: [
+                ...(module.imports ?? []), 
+                NotifierModule,
+            ],
+        };
+    },
+})
+export class AppModule {}
+```
 
-Generate and apply migrations:
-```sh
+4. Сгенерировать и запустить миграции:
+
+```shell
 yarn cli migrate:generate
+````
+
+```shell
 yarn cli migrate
 ```
 
-After setting up the module, inject INotifierService into the NestJS service you need and send a message using the send method:
+# Устройство модуля
+
+## Конфигурация
+
+Конфигурация модуля определена интерфейсом `INotifierModuleConfig`
+(находится в файле `src/infrastructure/config.ts`).
+Интерфейс INotifierModuleConfig описывает структуру конфигурации модуля уведомлений, позволяя задать 
+поддерживаемые провайдеры уведомлений и их настройки, включая данные авторизации.
+
+# Провайдеры уведомлений
+
+- [FirebasePushProvider](https://firebase.google.com/products/cloud-messaging?hl=en) - отправка push-уведомлений через Firebase Cloud Messaging
+- [MailProvider](https://nest-modules.github.io/mailer/) - отправка уведомлений по электронной почте
+- [SmscCallProvider](https://smsc.ru/api/http/send/voice/#menu) - голосовые звонки через API SMSC
+- [SmscSmsProvider](https://smsc.ru/api/http/send/sms/#menu) - отправка SMS-сообщений через сервис SMSC
+- [SmscVoiceMessageProvider](https://smsc.ru/api/http/send/voice/#menu) - голосовые сообщения через SMSC
+- [SmsRuCallProvider](https://sms.ru/api/code_call) - отправка звонков через API SMS.ru
+- [SmsRuSmsProvider](https://sms.ru/api/send) - отправка SMS через SMS.ru
+
+> Примечание: Для работы FirebasePushProvider вам необходимо [получить ключ сервера Firebase](https://firebase.google.com/docs/cloud-messaging/auth-server?hl=ru) и указать путь к нему в переменной среды вашей операционной системы GOOGLE_APPLICATION_CREDENTIALS.
+
+> Примечание: Для работы MailProvider вы также должны [подключить MailerModule](https://nest-modules.github.io/mailer/docs/mailer#configuration) из @nestjs-modules/mailer к своему модулю
+
+## Модели
+
+#### NotifierSendLogModel
+Основной лог отправки уведомления. Содержит тип, имя провайдера, статус отправки, сообщение об ошибке,
+получателя и (опционально) детали push-отправки.
+
+#### NotifierSendPushLogModel
+Детализированный лог отправки push-уведомлений. Содержит внешний ID, код и описание ошибки.
+
+#### NotifierSendRequestModel
+Модель запроса на отправку уведомлений. 
+Хранит список связанных логов (`NotifierSendLogModel`) по каждому провайдеру,
+участвующему в отправке одного уведомления.
+
+## Доменные сервисы
+
+#### NotifierSendLogService
+Сервис с CRUD-операциями над моделью `NotifierSendLogModel`.
+#### NotifierSendPushLogService
+Сервис с CRUD-операциями над моделью `NotifierSendPushLogModel`.
+#### NotifierSendRequestService
+Сервис с CRUD-операциями над моделью `NotifierSendRequestModel`.
+#### NotifierService
+Сервис отправки сообщений через различные каналы: sms, call, mail, push, voice.
+
+# Пример использования
+
 ```ts
+import {Inject} from '@nestjs/common';
+import {INotifierService} from '@steroidsjs/nest-modules/notifier/services/INotifierService';
+import NotifierProviderType from '@steroidsjs/nest-modules/notifier/enums/NotifierProviderType';
+import {INotifierCallOptions} from '@steroidsjs/nest-modules/notifier/interfaces/INotifierSendOptions';
+
 export class AuthConfirmService {
     constructor(
+        @Inject(INotifierService)
         protected readonly notifierService: INotifierService,
-    ) {}
+    ) {
+    }
 
-    protected async sendCall(config: IAuthConfirmServiceConfig, phone: string) {
+    protected async sendCall(phone: string) {
         const response = await this.notifierService.send({
             [NotifierProviderType.CALL]: {
                 phone,
