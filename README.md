@@ -4,21 +4,22 @@
 
 # Предназначение
 
-Модуль позволяет быстро внедрить в проект функциональность, связанную с отправкой и логированием уведомлений:
-- уведомления по электронной почте
-- сообщения по SMS
-- звонки с уведомлением
-- отправка push-уведомлений
-- отправка голосового сообщения
+Модуль позволяет быстро внедрить в проект функциональность,
+связанную с отправкой и логированием уведомлений следующих типов:
+- электронные письма
+- SMS
+- push-уведомления
+- голосовые звонки
+- голосовые сообщения
 
 # Быстрый старт
 
 Для того чтобы подключить NotifierModule в существующий проект на Steroids Nest
-нужно следовать шагам, описанным ниже.
+нужно:
 
-1. Установите пакет:
+1. Установить пакеты:
 ```sh
-yarn add @steroidsjs/nest-notifier
+yarn add @steroidsjs/nest-notifier @steroidsjs/nest-modules
 ```
 
 2. Определить NotifierModule с конфигурацией из `@steroidsjs/nest-notifier`. 
@@ -107,18 +108,23 @@ yarn cli migrate
 
 Конфигурация модуля определена интерфейсом `INotifierModuleConfig`
 (находится в файле `src/infrastructure/config.ts`).
-Интерфейс INotifierModuleConfig описывает структуру конфигурации модуля уведомлений, позволяя задать 
-поддерживаемые провайдеры уведомлений и их настройки, включая данные авторизации.
+Интерфейс INotifierModuleConfig описывает конфигурацию модуля уведомлений,
+в которой задаются поддерживаемые провайдеры и их параметры, включая данные авторизации.
 
-# Провайдеры уведомлений
+## Провайдеры уведомлений
 
-- [FirebasePushProvider](https://firebase.google.com/products/cloud-messaging?hl=en) - отправка push-уведомлений через Firebase Cloud Messaging
-- [MailProvider](https://nest-modules.github.io/mailer/) - отправка уведомлений по электронной почте
-- [SmscCallProvider](https://smsc.ru/api/http/send/voice/#menu) - голосовые звонки через API SMSC
-- [SmscSmsProvider](https://smsc.ru/api/http/send/sms/#menu) - отправка SMS-сообщений через сервис SMSC
-- [SmscVoiceMessageProvider](https://smsc.ru/api/http/send/voice/#menu) - голосовые сообщения через SMSC
-- [SmsRuCallProvider](https://sms.ru/api/code_call) - отправка звонков через API SMS.ru
-- [SmsRuSmsProvider](https://sms.ru/api/send) - отправка SMS через SMS.ru
+Провайдер уведомлений — это класс, отвечающий за отправку уведомлений. 
+Он реализует интерфейс `INotifierProvider` и содержит код, который выполняет отправку через конкретный сервис.
+
+Реализованные провайдеры:
+
+- [FirebasePushProvider](https://github.com/steroids/nest-notifier/blob/main/src/domain/providers/FirebasePushProvider.ts) - отправка push-уведомлений через [Firebase Cloud Messaging](https://firebase.google.com/products/cloud-messaging?hl=en)
+- [MailProvider](https://github.com/steroids/nest-notifier/blob/main/src/domain/providers/MailProvider.ts) - отправка писем по электронной почте с помощью [NestJS Mailer](https://nest-modules.github.io/mailer/)
+- [SmscCallProvider](https://github.com/steroids/nest-notifier/blob/main/src/domain/providers/SmscCallProvider.ts) - отправка звонков через [SMSC](https://smsc.ru/api/http/send/voice/#menu)
+- [SmscSmsProvider](https://github.com/steroids/nest-notifier/blob/main/src/domain/providers/SmscSmsProvider.ts) - отправка SMS через [SMSC](https://smsc.ru/api/http/send/sms/#menu)
+- [SmscVoiceMessageProvider](https://github.com/steroids/nest-notifier/blob/main/src/domain/providers/SmscVoiceMessageProvider.ts) - отправка голосовых сообщений через [SMSC](https://smsc.ru/api/http/send/voice/#menu)
+- [SmsRuCallProvider](https://github.com/steroids/nest-notifier/blob/main/src/domain/providers/SmsRuCallProvider.ts) - отправка звонков через [SMS.ru](https://sms.ru/api/code_call)
+- [SmsRuSmsProvider](https://github.com/steroids/nest-notifier/blob/main/src/domain/providers/SmsRuSmsProvider.ts) - отправка SMS через [SMS.ru](https://sms.ru/api/send)
 
 > Примечание: Для работы FirebasePushProvider вам необходимо [получить ключ сервера Firebase](https://firebase.google.com/docs/cloud-messaging/auth-server?hl=ru) и указать путь к нему в переменной среды вашей операционной системы GOOGLE_APPLICATION_CREDENTIALS.
 
@@ -148,14 +154,16 @@ yarn cli migrate
 Сервис с CRUD-операциями над моделью `NotifierSendRequestModel`.
 #### NotifierService
 Сервис отправки сообщений через различные каналы: sms, call, mail, push, voice.
+Вызывает нужный [провайдер уведомлений](#провайдеры-уведомлений).
 
 # Пример использования
 
-```ts
+```typescript
 import {Inject} from '@nestjs/common';
 import {INotifierService} from '@steroidsjs/nest-modules/notifier/services/INotifierService';
 import NotifierProviderType from '@steroidsjs/nest-modules/notifier/enums/NotifierProviderType';
 import {INotifierCallOptions} from '@steroidsjs/nest-modules/notifier/interfaces/INotifierSendOptions';
+import {IAuthConfirmServiceConfig} from '../config/IAuthConfirmServiceConfig';
 
 export class AuthConfirmService {
     constructor(
@@ -164,16 +172,36 @@ export class AuthConfirmService {
     ) {
     }
 
-    protected async sendCall(phone: string) {
-        const response = await this.notifierService.send({
-            [NotifierProviderType.CALL]: {
+    protected async sendSms(config: IAuthConfirmServiceConfig, phone: string) {
+        code = generateCode(config.smsCodeLength);
+        
+        await this.notifierService.send({
+            [NotifierProviderType.SMS]: {
                 phone,
-            } as INotifierCallOptions,
+                message: config.messageTemplate.replace('{code}', code),
+                name: config.providerName,
+            } as INotifierSmsOptions,
         });
-
-        code = response[NotifierProviderType.CALL];
-
+        
         return code;
     }
 }
 ```
+
+Что происходит внутри `NotifierService` (используемого в примере через интерфейс `INotifierService`):
+- Вызывается метод `send` с объектом, указывающим тип уведомления (`NotifierProviderType.SMS`) и его параметры.
+- `NotifierService` выбирает активного провайдера для типа `NotifierProviderType.SMS`.
+- Выполняется отправка через соответствующий `INotifierProvider` (например, через `SmsRuSmsProvider`).
+- Возвращается результат отправки, включая id запроса на уведомление (`NotifierSendRequestModel`)
+и данные от провайдера (id моделей `NotifierSendLogModel` и payload от провайдера).
+
+> Можно одновременно отправить уведомления нескольких типов, передав объект с несколькими ключами:
+> - `NotifierProviderType.SMS`
+> 
+> - `NotifierProviderType.CALL`
+> 
+> - `NotifierProviderType.MAIL`
+> 
+> - `NotifierProviderType.PUSH`
+> 
+> - `NotifierProviderType.VOICE`
