@@ -136,13 +136,25 @@ yarn cli migrate
 Основной лог отправки уведомления. Содержит тип, имя провайдера, статус отправки, сообщение об ошибке,
 получателя и (опционально) детали push-отправки.
 
+Для чего можно использовать:
+- Отладка сбоев при интеграции с внешними провайдерами.
+- Аналитика успешных и неуспешных отправок по типу уведомлений и провайдерам.
+
 #### NotifierSendPushLogModel
 Детализированный лог отправки push-уведомлений. Содержит внешний ID, код и описание ошибки.
+
+Для чего можно использовать:
+- Отладка сбоев при доставке push-сообщений.
+- Связывание с внешними системами по `messageId`.
 
 #### NotifierSendRequestModel
 Модель запроса на отправку уведомлений. 
 Хранит список связанных логов (`NotifierSendLogModel`) по каждому провайдеру,
 участвующему в отправке одного уведомления.
+
+Для чего можно использовать:
+- Группировка мультиканальных отправок.
+- Централизованный контроль для одного логического уведомления по разным каналам.
 
 ## Доменные сервисы
 
@@ -154,15 +166,14 @@ yarn cli migrate
 Сервис с CRUD-операциями над моделью `NotifierSendRequestModel`.
 #### NotifierService
 Сервис отправки сообщений через различные каналы: sms, call, mail, push, voice.
-Вызывает нужный [провайдер уведомлений](#провайдеры-уведомлений).
+Вызывает нужный [провайдер уведомлений](#провайдеры-уведомлений). 
+Более подробное описание работы разобрано ниже.
 
 # Пример использования
 
 ```typescript
 import {Inject} from '@nestjs/common';
 import {INotifierService} from '@steroidsjs/nest-modules/notifier/services/INotifierService';
-import NotifierProviderType from '@steroidsjs/nest-modules/notifier/enums/NotifierProviderType';
-import {INotifierCallOptions} from '@steroidsjs/nest-modules/notifier/interfaces/INotifierSendOptions';
 import {IAuthConfirmServiceConfig} from '../config/IAuthConfirmServiceConfig';
 
 export class AuthConfirmService {
@@ -176,11 +187,11 @@ export class AuthConfirmService {
         code = generateCode(config.smsCodeLength);
         
         await this.notifierService.send({
-            [NotifierProviderType.SMS]: {
+            sms: {
                 phone,
                 message: config.messageTemplate.replace('{code}', code),
                 name: config.providerName,
-            } as INotifierSmsOptions,
+            },
         });
         
         return code;
@@ -189,19 +200,21 @@ export class AuthConfirmService {
 ```
 
 Что происходит внутри `NotifierService` (используемого в примере через интерфейс `INotifierService`):
-- Вызывается метод `send` с объектом, указывающим тип уведомления (`NotifierProviderType.SMS`) и его параметры.
+- Вызывается метод `send` с объектом, указывающим тип уведомления (`sms = NotifierProviderType.SMS`) и его параметры.
 - `NotifierService` выбирает активного провайдера для типа `NotifierProviderType.SMS`.
+- Создаётся запись о запросе на уведомление (`NotifierSendRequestService`).
 - Выполняется отправка через соответствующий `INotifierProvider` (например, через `SmsRuSmsProvider`).
+- Внутри провайдера создаются записи логов (`NotifierSendLogModel`), привязанные к переданному id запроса на уведомление (`NotifierSendRequestService`).
+Для push-уведомлений дополнительно сохраняется запись `NotifierSendPushLogModel`, связанная с конкретным `NotifierSendLogModel`.
 - Возвращается результат отправки, включая id запроса на уведомление (`NotifierSendRequestModel`)
 и данные от провайдера (id моделей `NotifierSendLogModel` и payload от провайдера).
 
 > Можно одновременно отправить уведомления нескольких типов, передав объект с несколькими ключами:
-> - `NotifierProviderType.SMS`
+> - mail
+> - sms
+> - push
+> - call
+> - voice
 > 
-> - `NotifierProviderType.CALL`
-> 
-> - `NotifierProviderType.MAIL`
-> 
-> - `NotifierProviderType.PUSH`
-> 
-> - `NotifierProviderType.VOICE`
+> Для каждого способа отправки нужно передавать разные данные, которые описаны в соответствующих интерфейсах.
+Эти интерфейсы находятся в `@steroidsjs/nest-modules/notifier/interfaces`.
